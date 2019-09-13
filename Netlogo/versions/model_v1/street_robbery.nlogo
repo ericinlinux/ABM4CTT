@@ -20,6 +20,9 @@ globals [
   week-day                ;; day of the week
   prob-standby            ;; probability of an agent to go standby
   density-average         ;; number of agents divided by vertices
+  total-crimes            ;; count of the crimes
+
+  report-crimes-per-hour  ;; vector to report the crimes per hour
 ]
 
 ;; --------------------------------
@@ -41,15 +44,20 @@ breed [ people person ]
 people-own [
   destination       ;; next vertex to go
   mynode            ;; current node
-  mypath            ;; agentset containing nodes to visit in the path
-  step-in-path      ;; number of steps taken in the walk
-  last-stop         ;; final destination
+  ;mypath            ;; agentset containing nodes to visit in the path
+  ;step-in-path      ;; number of steps taken in the walk
+  ;last-stop         ;; final destination
   active?           ;; after node reaches destination, it stays there for a while
-  time-standby      ;; time the agent will stay in the destination before moving again
+  ;time-standby      ;; time the agent will stay in the destination before moving again
   home-vertex       ;; home vertex
   ;; OFFENDERS VARIABLES
   offender?         ;; if the node is an offender
   crimes-committed  ;; number of crimes committed
+  victim            ;; potential victim selected by the awareness
+  ;; CITIZENS VARIABLES
+  awareness         ;; awareness level of the agent
+  victim-history    ;; if the person was a victim recently, this variable is gonna be higher
+  robbed?           ;; if the person was robbed
 ]
 
 patches-own [
@@ -60,6 +68,7 @@ patches-own [
   crime-hist-vertex ;; if there was a crime in this vertex recently
   attractiveness    ;; overall attractiveness of the location
   time-effect       ;; time of the day effect
+  crimes-in-vertex  ;; total crimes in the vertex
 
 ]
 
@@ -91,6 +100,7 @@ to setup-globals
   set popular-times [ 10 2 1 1 1 2 10 15 20 40 80 100 100 80 70 60 70 80 100 80 50 40 30 20 ]
   set offenders-popular-times [ 90 90 80 70 40 20 10 5 5 10 20 30 30 30 30 50 50 50 60 60 70 70 70 80 ]
   set crime-rates-per-hour [13 13 19 19 9 9 2 2 1 1 3 3 5 5 4 4 4 4 9 9 25 25 19 19]
+  set report-crimes-per-hour [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 ]
   set density-average num-people / count vertices
 end
 
@@ -189,10 +199,14 @@ to setup-citizens
     set color green
 
     set destination nobody
-    set last-stop nobody
+    ;set last-stop nobody
     set active? true
     set mynode one-of vertices move-to mynode
     set home-vertex mynode
+
+    ; for citizens
+    set robbed? false
+    set victim-history 0
 
 
   ]
@@ -218,9 +232,13 @@ end
 to go
   random-walk
   update-attractiveness
+  update-citizens
+  commit-crime
 end
 
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; UPDATE THE ATTRACTIVENESS OF THE VERTICES IN THE MAP
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 to update-attractiveness
   ask patches with [corner? = true] [
@@ -233,7 +251,7 @@ to update-attractiveness
     set crime-hist-vertex crime-hist-vertex * crime-hist-sf
 
     ;; the time of the day effect is based on the data provided by the police
-    set time-effect 1 - (item cur-hour crime-rates-per-hour) / 113 ;; the vector crime-rates-per-hour presents a sum of 113 robberies
+    set time-effect (item cur-hour crime-rates-per-hour) / 113 ;; the vector crime-rates-per-hour presents a sum of 113 robberies
 
     set attractiveness attractiveness + attractiveness-sf * ( ( ( density + crime-hist-vertex + time-effect) / 3 ) - attractiveness )
 
@@ -242,6 +260,47 @@ to update-attractiveness
 end
 
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; UPDATE THE AWARENESS AND CRIME HISTORY OF THE CITIZENS
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+to update-citizens
+  ask people [
+    ifelse robbed? [
+      set victim-history 1
+      set robbed? false
+    ][ set victim-history victim-history * victim-history-sf ]
+
+    set awareness (victim-history + (1 - [ attractiveness ] of mynode) ) / 2
+  ]
+
+end
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; ASK OFFENDERS TO MAKE DECISIONS ABOUT COMMITTING THE CRIME
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+to commit-crime
+  ask people with [offender? = true and active? = true] [
+    if [density] of mynode > 0 [
+      set victim min-one-of people-here with [active? = true and offender? != true] [awareness]
+      if victim != nobody [
+        if random-float 1 < [awareness] of victim [
+          set crimes-committed crimes-committed + 1
+          set total-crimes total-crimes + 1
+          set crimes-in-vertex crimes-in-vertex + 1
+          set report-crimes-per-hour replace-item cur-hour report-crimes-per-hour ((item cur-hour report-crimes-per-hour ) + 1)
+          ask victim [ set robbed? true ]
+          type victim type " with awareness " type [awareness] of victim type " was robbed by " type self type "\n"
+        ]
+      ]
+    ]
+  ]
+end
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; WALKING ALGORITHM
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 to random-walk
   time-update
 
@@ -458,10 +517,10 @@ NIL
 1
 
 SWITCH
+222
+17
+376
 50
-213
-204
-246
 show-buildings
 show-buildings
 1
@@ -469,15 +528,15 @@ show-buildings
 -1000
 
 SLIDER
-31
-174
-203
-207
+3
+90
+175
+123
 num-people
 num-people
 50
 5000
-2050.0
+3100.0
 50
 1
 NIL
@@ -570,16 +629,16 @@ NIL
 1
 
 SLIDER
-33
-254
-205
-287
+3
+135
+175
+168
 num-offenders
 num-offenders
 0
 100
-60.0
-20
+1.0
+1
 1
 NIL
 HORIZONTAL
@@ -596,10 +655,10 @@ week-day
 11
 
 SLIDER
-1031
-54
-1203
-87
+6
+230
+178
+263
 crime-hist-sf
 crime-hist-sf
 0
@@ -611,10 +670,10 @@ NIL
 HORIZONTAL
 
 SLIDER
-1069
-135
-1241
-168
+6
+268
+178
+301
 attractiveness-sf
 attractiveness-sf
 0
@@ -633,6 +692,60 @@ MONITOR
 NIL
 density-average
 2
+1
+11
+
+SLIDER
+7
+307
+179
+340
+victim-history-sf
+victim-history-sf
+0
+1
+0.5
+0.1
+1
+NIL
+HORIZONTAL
+
+TEXTBOX
+9
+198
+159
+223
+Speed Factors
+20
+14.0
+1
+
+PLOT
+997
+48
+1197
+198
+Crimes per hour
+time (h)
+# of crimes
+0.0
+24.0
+0.0
+100.0
+false
+false
+"" ""
+PENS
+"default" 1.0 1 -16777216 true "" "foreach (range 0 24)[ x ->\n   plotxy x item x report-crimes-per-hour\n]"
+
+MONITOR
+1205
+48
+1294
+93
+NIL
+total-crimes
+17
 1
 11
 
