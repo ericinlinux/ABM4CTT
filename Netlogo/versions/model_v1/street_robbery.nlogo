@@ -22,6 +22,7 @@ globals [
   density-average         ;; number of agents divided by vertices
   total-crimes            ;; count of the crimes
 
+  #-vertices
   report-crimes-per-hour  ;; vector to report the crimes per hour
 ]
 
@@ -64,11 +65,13 @@ patches-own [
   corner?        ;; if path is one of the corner streets
   closest-vertex ;; the closest vertex of the corner patches (only for corner patches)
   ;; MODEL VARIABLES
+  num-people-here   ;; number of people (no offenders) in a patch
   density           ;; amount of people in the node
   crime-hist-vertex ;; if there was a crime in this vertex recently
   attractiveness    ;; overall attractiveness of the location
   time-effect       ;; time of the day effect
   crimes-in-vertex  ;; total crimes in the vertex
+
 
 ]
 
@@ -102,13 +105,14 @@ to setup-globals
   set crime-rates-per-hour [13 13 19 19 9 9 2 2 1 1 3 3 5 5 4 4 4 4 9 9 25 25 19 19]
   set report-crimes-per-hour [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 ]
   set density-average num-people / count vertices
+  set #-vertices count vertices
 end
 
 ;; MAP READING
 to setup-map
   ; size of the patch map
   resize-world -180 180 -115 115
-  set-patch-size 2
+  set-patch-size 1.5
   ask patches [ set pcolor white ]
 
 
@@ -243,22 +247,32 @@ end
 to update-attractiveness
   ask patches with [corner? = true] [
     ;; the higher the density (max 1) the better for the offender
-    ifelse count people-here with [active? = true] > 0 [
-      set density 1 / count people-here with [active? = true]
+    set num-people-here count people-here with [active? = true and offender? != true]
+    ifelse num-people-here > 0 [
+      set density 1 / num-people-here
     ][ set density 0 ]
 
     ;; the higher the crime history, the better to the offender
     set crime-hist-vertex crime-hist-vertex * crime-hist-sf
 
     ;; the time of the day effect is based on the data provided by the police
-    set time-effect (item cur-hour crime-rates-per-hour) / 113 ;; the vector crime-rates-per-hour presents a sum of 113 robberies
+    ;set time-effect (item cur-hour crime-rates-per-hour) / 113 ;; the vector crime-rates-per-hour presents a sum of 113 robberies
+    set time-effect time-crime-effect cur-hour
 
-    set attractiveness attractiveness + attractiveness-sf * ( ( ( density + crime-hist-vertex + time-effect) / 3 ) - attractiveness )
+    let update-factor crime-hist-balance * crime-hist-vertex + ( (1 - crime-hist-balance) * ( 1 - density + time-effect)  / 2   )
+    set attractiveness attractiveness + attractiveness-sf * ( update-factor - attractiveness )
 
   ]
 
 end
 
+;; SINOIDAL MODEL FOR THE EFFECT OF THE TIME
+to-report time-crime-effect [ t ]
+  ;; in radians
+  ;; report 0.5 - 0.5 * sin ( pi * (t - 2) / 12)
+  ;; in degrees ( radians * 180 / pi )
+  report 0.5 - 0.5 * sin ( 15 * (t - 2))
+end
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; UPDATE THE AWARENESS AND CRIME HISTORY OF THE CITIZENS
@@ -270,7 +284,8 @@ to update-citizens
       set robbed? false
     ][ set victim-history victim-history * victim-history-sf ]
 
-    set awareness (victim-history + (1 - [ attractiveness ] of mynode) ) / 2
+    ;; awareness-balance gives different weights for victim-history and attractiveness of the place
+    set awareness (awareness-balance * victim-history + (1 - awareness-balance) * (1 - [ attractiveness ] of mynode) )
   ]
 
 end
@@ -283,13 +298,15 @@ to commit-crime
     if [density] of mynode > 0 [
       set victim min-one-of people-here with [active? = true and offender? != true] [awareness]
       if victim != nobody [
-        if random-float 1 < [awareness] of victim [
+        if random-float 1 > [awareness] of victim [
           set crimes-committed crimes-committed + 1
           set total-crimes total-crimes + 1
           set crimes-in-vertex crimes-in-vertex + 1
+          set crime-hist-vertex 1
           set report-crimes-per-hour replace-item cur-hour report-crimes-per-hour ((item cur-hour report-crimes-per-hour ) + 1)
           ask victim [ set robbed? true ]
-          type victim type " with awareness " type [awareness] of victim type " was robbed by " type self type "\n"
+          type "hour: " type cur-hour type victim type " with awareness " type [awareness] of victim type " was robbed by " type self type "\n"
+
         ]
       ]
     ]
@@ -475,11 +492,11 @@ end
 GRAPHICS-WINDOW
 214
 59
-944
-530
+763
+414
 -1
 -1
-2.0
+1.5
 1
 10
 1
@@ -536,17 +553,17 @@ num-people
 num-people
 50
 5000
-3100.0
+3000.0
 50
 1
 NIL
 HORIZONTAL
 
 PLOT
-1011
-263
-1379
-552
+1059
+10
+1331
+217
 People statuses
 Time
 #-people
@@ -562,9 +579,9 @@ PENS
 "active" 1.0 0 -14070903 true "" "plot count people with [hidden? = false]"
 
 MONITOR
-705
+589
 10
-762
+646
 55
 day
 cur-day
@@ -573,9 +590,9 @@ cur-day
 11
 
 MONITOR
-768
+652
 11
-825
+709
 56
 hour
 cur-hour
@@ -584,9 +601,9 @@ cur-hour
 11
 
 MONITOR
-833
+717
 11
-890
+774
 56
 min
 cur-min
@@ -644,9 +661,9 @@ NIL
 HORIZONTAL
 
 MONITOR
-623
+507
 10
-694
+578
 55
 Week Day
 week-day
@@ -663,7 +680,7 @@ crime-hist-sf
 crime-hist-sf
 0
 1
-0.5
+0.7
 0.1
 1
 NIL
@@ -678,19 +695,19 @@ attractiveness-sf
 attractiveness-sf
 0
 1
-0.5
+0.7
 0.1
 1
 NIL
 HORIZONTAL
 
 MONITOR
-500
+384
 11
-613
+497
 56
-NIL
-density-average
+Average Density
+count people with [active? = true]/ #-vertices
 2
 1
 11
@@ -704,7 +721,7 @@ victim-history-sf
 victim-history-sf
 0
 1
-0.5
+0.7
 0.1
 1
 NIL
@@ -721,10 +738,10 @@ Speed Factors
 1
 
 PLOT
-997
-48
-1197
-198
+810
+11
+1042
+207
 Crimes per hour
 time (h)
 # of crimes
@@ -739,15 +756,66 @@ PENS
 "default" 1.0 1 -16777216 true "" "foreach (range 0 24)[ x ->\n   plotxy x item x report-crimes-per-hour\n]"
 
 MONITOR
-1205
-48
-1294
-93
+211
+421
+300
+466
 NIL
 total-crimes
 17
 1
 11
+
+PLOT
+810
+223
+1329
+348
+Awareness (people) vs Attractiveness (places)
+time
+Variables
+0.0
+10.0
+0.0
+1.0
+true
+true
+"" ""
+PENS
+"Time Effect" 1.0 0 -13345367 true "" "plot mean [time-effect] of vertices"
+"Density" 1.0 0 -955883 true "" "plot mean [density] of vertices"
+"Crime Hist" 1.0 0 -14439633 true "" "plot mean [crime-hist-vertex] of vertices"
+"Attractiveness" 1.0 0 -16777216 true "" "plot mean [attractiveness] of vertices"
+
+SLIDER
+7
+376
+182
+409
+awareness-balance
+awareness-balance
+0
+1
+0.05
+0.05
+1
+NIL
+HORIZONTAL
+
+SLIDER
+7
+417
+182
+450
+crime-hist-balance
+crime-hist-balance
+0
+1
+0.05
+0.05
+1
+NIL
+HORIZONTAL
 
 @#$#@#$#@
 ## WHAT IS IT?
