@@ -259,7 +259,7 @@ to update-attractiveness
     ;set time-effect (item cur-hour crime-rates-per-hour) / 113 ;; the vector crime-rates-per-hour presents a sum of 113 robberies
     set time-effect time-crime-effect cur-hour
 
-    let update-factor crime-hist-balance * crime-hist-vertex + ( (1 - crime-hist-balance) * ( 1 - density + time-effect)  / 2   )
+    let update-factor crime-hist-balance * crime-hist-vertex + ( (1 - crime-hist-balance) * ( density + time-effect)  / 2   )
     set attractiveness attractiveness + attractiveness-sf * ( update-factor - attractiveness )
 
   ]
@@ -282,6 +282,7 @@ to update-citizens
     ifelse robbed? [
       set victim-history 1
       set robbed? false
+      set color blue
     ][ set victim-history victim-history * victim-history-sf ]
 
     ;; awareness-balance gives different weights for victim-history and attractiveness of the place
@@ -321,11 +322,11 @@ end
 to random-walk
   time-update
 
-  ask people [
+  ask people with [offender? != true] [
     ; if it is full hour, change the standby nodes
     if cur-min = 0 [
-      set prob-standby item cur-hour popular-times
-      ifelse prob-standby <= random 100 [
+      set prob-standby people-on-the-streets ;; item cur-hour popular-times
+      ifelse random-float 1 > prob-standby [
         set active? false
         set hidden? true
       ][
@@ -340,6 +341,14 @@ to random-walk
     ]
   ]
   tick
+end
+
+
+to-report people-on-the-streets
+  ;; in radians
+  ;; report 0.5 + 0.5 * sin ( pi * (t - 54) / 72)
+  ;; in degrees ( radians * 180 / pi )
+  report 0.501 + 0.5 * sin ( 2.5 * (ticks - 54))
 end
 
 ;;;;;;;;;;;;;;;;;helper functions;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -553,7 +562,7 @@ num-people
 num-people
 50
 5000
-3000.0
+5000.0
 50
 1
 NIL
@@ -816,6 +825,46 @@ crime-hist-balance
 1
 NIL
 HORIZONTAL
+
+PLOT
+812
+358
+1327
+478
+plot 1
+NIL
+NIL
+0.0
+10.0
+0.0
+1.0
+true
+false
+"" ""
+PENS
+"default" 1.0 0 -16777216 true "" "plot people-on-the-streets"
+
+MONITOR
+423
+426
+577
+471
+NIL
+people-on-the-streets
+17
+1
+11
+
+MONITOR
+589
+428
+808
+473
+NIL
+count people with [active? = true]
+17
+1
+11
 
 @#$#@#$#@
 ## WHAT IS IT?
