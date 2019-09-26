@@ -19,7 +19,6 @@ globals [
   cur-min                 ;; min
   week-day                ;; day of the week
   prob-standby            ;; probability of an agent to go standby
-  density-average         ;; number of agents divided by vertices
   total-crimes            ;; count of the crimes
 
   #-vertices
@@ -45,20 +44,20 @@ breed [ people person ]
 people-own [
   destination       ;; next vertex to go
   mynode            ;; current node
-  ;mypath            ;; agentset containing nodes to visit in the path
-  ;step-in-path      ;; number of steps taken in the walk
-  ;last-stop         ;; final destination
   active?           ;; after node reaches destination, it stays there for a while
   ;time-standby      ;; time the agent will stay in the destination before moving again
   home-vertex       ;; home vertex
   ;; OFFENDERS VARIABLES
   offender?         ;; if the node is an offender
   crimes-committed  ;; number of crimes committed
-  victim            ;; potential victim selected by the awareness
+  victim            ;; potential victim selected
+  motivation
   ;; CITIZENS VARIABLES
   awareness         ;; awareness level of the agent
   victim-history    ;; if the person was a victim recently, this variable is gonna be higher
   robbed?           ;; if the person was robbed
+  gender            ;; 0 male 1 female
+  age               ;; age of the agent
 ]
 
 patches-own [
@@ -78,11 +77,8 @@ patches-own [
 ;; --------------------------------
 ;;      SETUP PROCEDURES
 ;; -------------------------------
-
-
 to setup
   ca
-
   setup-map
   ; setup graph
   setup-vertices
@@ -95,17 +91,23 @@ end
 
 ;; GLOBALS
 to setup-globals
-  set min-ticks-wait 1   ;; every tick is 10 minutes
-  set max-ticks-wait 24  ;; 4 hours max
-  set cur-day 1          ;; starts on day 1
+  ;; set min-ticks-wait 1   ;; every tick is 10 minutes
+  ;; set max-ticks-wait 24  ;; 4 hours max
+  ;; set popular-times [ 10 2 1 1 1 2 10 15 20 40 80 100 100 80 70 60 70 80 100 80 50 40 30 20 ]
+  ;; set offenders-popular-times [ 90 90 80 70 40 20 10 5 5 10 20 30 30 30 30 50 50 50 60 60 70 70 70 80 ]
+
+  set cur-day 0          ;; starts on day 0
   set cur-hour 0
   set cur-min 0
-  set popular-times [ 10 2 1 1 1 2 10 15 20 40 80 100 100 80 70 60 70 80 100 80 50 40 30 20 ]
-  set offenders-popular-times [ 90 90 80 70 40 20 10 5 5 10 20 30 30 30 30 50 50 50 60 60 70 70 70 80 ]
   set crime-rates-per-hour [13 13 19 19 9 9 2 2 1 1 3 3 5 5 4 4 4 4 9 9 25 25 19 19]
   set report-crimes-per-hour [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 ]
-  set density-average num-people / count vertices
+
   set #-vertices count vertices
+  set num-people 10000
+  set num-offenders 20
+  set motivation-sf 0.01
+  set awareness-sf 0.5
+  ;set victim-history 0.1
 end
 
 ;; MAP READING
@@ -114,7 +116,6 @@ to setup-map
   resize-world -180 180 -115 115
   set-patch-size 1.5
   ask patches [ set pcolor white ]
-
 
   ; Load all of our datasets
   set buildings-dataset gis:load-dataset "../data/buildings2.shp"
@@ -193,7 +194,7 @@ to setup-vertices
     set crime-hist-vertex 0
   ]
 
-  ask links [set thickness 0.1 set color black]
+  ask links [set thickness 1.4 set color black]
 end
 
 to setup-citizens
@@ -211,23 +212,17 @@ to setup-citizens
     ; for citizens
     set robbed? false
     set victim-history 0
-
-
+    set awareness random-float 1
   ]
-
 
   ask n-of num-offenders people [
     set offender? true
     set color red
     set size 8
     set crimes-committed 0
+    set motivation random-float 1
   ]
-
-  ;; setup destination
-
 end
-
-
 
 ;; --------------------------------
 ;;      GO PROCEDURES
@@ -238,6 +233,11 @@ to go
   update-attractiveness
   update-citizens
   commit-crime
+  if cur-day = 366 [
+    stop
+  ]
+  draw-plots
+
 end
 
 
@@ -249,7 +249,7 @@ to update-attractiveness
     ;; the higher the density (max 1) the better for the offender
     set num-people-here count people-here with [active? = true and offender? != true]
     ifelse num-people-here > 0 [
-      set density 1 / num-people-here
+      set density 1 / (num-people-here ^ 2)
     ][ set density 0 ]
 
     ;; the higher the crime history, the better to the offender
@@ -257,13 +257,32 @@ to update-attractiveness
 
     ;; the time of the day effect is based on the data provided by the police
     ;set time-effect (item cur-hour crime-rates-per-hour) / 113 ;; the vector crime-rates-per-hour presents a sum of 113 robberies
-    set time-effect time-crime-effect cur-hour
+    ;set time-effect time-crime-effect cur-hour
 
-    let update-factor crime-hist-balance * crime-hist-vertex + ( (1 - crime-hist-balance) * ( density + time-effect)  / 2   )
-    set attractiveness attractiveness + attractiveness-sf * ( update-factor - attractiveness )
+
+    ;let update-factor crime-hist-balance * crime-hist-vertex + ( (1 - crime-hist-balance) * ( density + time-effect)  / 2   )
+    ;set attractiveness attractiveness + attractiveness-sf * ( update-factor - attractiveness )
+    ;set attractiveness time-effect * density
+    ;; for the offender -> the higher the better
+    set attractiveness (1 - luminosity ) * density
 
   ]
 
+end
+
+
+;; LUMINOSITY IN THE CITY ACCORDING TO THE TIME OF THE DAY (in ticks)
+to-report luminosity
+  ;; half light at 6am and 6pm. Pick sun at 12pm, and darkness at 12am.
+  ;; report 0.5 + 0.5 * sin ( pi * (x - 36 ) / 72 )
+  report 0.5 + 0.5 * sin ( 2.5 * (ticks - 36) )
+end
+
+
+to-report alogistic [ x ]
+  let omega 5
+  let tau 20
+  report ((1 / (1 + e ^ (- omega * (x - tau) ) ) ) - (1 / (1 + e ^ (tau * omega)))) * (1 + e ^ (- omega * tau) )
 end
 
 ;; SINOIDAL MODEL FOR THE EFFECT OF THE TIME
@@ -286,7 +305,8 @@ to update-citizens
     ][ set victim-history victim-history * victim-history-sf ]
 
     ;; awareness-balance gives different weights for victim-history and attractiveness of the place
-    set awareness (awareness-balance * victim-history + (1 - awareness-balance) * (1 - [ attractiveness ] of mynode) )
+    ;set awareness (awareness-balance * victim-history + (1 - awareness-balance) * (1 - [ attractiveness ] of mynode) )
+    set awareness awareness + awareness-sf * ( attractiveness - awareness)
   ]
 
 end
@@ -295,22 +315,36 @@ end
 ;;; ASK OFFENDERS TO MAKE DECISIONS ABOUT COMMITTING THE CRIME
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 to commit-crime
+  ; ask offenders to evaluate the possibility of commiting a crime
   ask people with [offender? = true and active? = true] [
-    if [density] of mynode > 0 [
-      set victim min-one-of people-here with [active? = true and offender? != true] [awareness]
-      if victim != nobody [
-        if random-float 1 > [awareness] of victim [
-          set crimes-committed crimes-committed + 1
-          set total-crimes total-crimes + 1
-          set crimes-in-vertex crimes-in-vertex + 1
-          set crime-hist-vertex 1
-          set report-crimes-per-hour replace-item cur-hour report-crimes-per-hour ((item cur-hour report-crimes-per-hour ) + 1)
-          ask victim [ set robbed? true ]
-          type "hour: " type cur-hour type victim type " with awareness " type [awareness] of victim type " was robbed by " type self type "\n"
+    if motivation > motivation-threshold [
+      if [density] of mynode > 0 [
+        set victim min-one-of people-here with [active? = true and offender? != true] [awareness]
+        if victim != nobody [
+          let rfloat random-float 1
+          if rfloat < ((1 - [awareness] of victim) * motivation ) [
+            set crimes-committed crimes-committed + 1
+            set total-crimes total-crimes + 1
+            set crimes-in-vertex crimes-in-vertex + 1
+            set crime-hist-vertex 1
+            set report-crimes-per-hour replace-item cur-hour report-crimes-per-hour ((item cur-hour report-crimes-per-hour ) + 1)
+            ask victim [ set robbed? true ]
 
+            ;type "hour: " type cur-hour type victim type " with awareness " type [awareness] of victim type " was robbed by " type self type " with a motivation of " type motivation type "\n"
+            ;type rfloat type "\t" type ((1 - [awareness] of victim) * motivation ) type "\n"
+            set motivation random-float 0.25
+
+
+          ]
         ]
       ]
     ]
+    ;; motivation adjustment every day
+    ;if cur-hour = 0 [
+    set motivation motivation + 0.005 * (random-float motivation-sf)
+    if motivation > 1 [ set motivation 1 ]
+    ;]
+
   ]
 end
 
@@ -322,10 +356,11 @@ end
 to random-walk
   time-update
 
-  ask people with [offender? != true] [
+  ask people [
     ; if it is full hour, change the standby nodes
-    if cur-min = 0 [
-      set prob-standby people-on-the-streets ;; item cur-hour popular-times
+    set prob-standby people-on-the-streets ;; item cur-hour popular-times
+
+    ifelse offender? != true [
       ifelse random-float 1 > prob-standby [
         set active? false
         set hidden? true
@@ -333,7 +368,16 @@ to random-walk
         set active? true
         set hidden? false
       ]
+    ][
+      ifelse random-float 1 < prob-standby [
+        set active? false
+        set hidden? true
+      ][
+        set active? true
+        set hidden? false
+      ]
     ]
+
 
     if active? = true [
       set mynode one-of [myneighbors] of mynode
@@ -348,7 +392,7 @@ to-report people-on-the-streets
   ;; in radians
   ;; report 0.5 + 0.5 * sin ( pi * (t - 54) / 72)
   ;; in degrees ( radians * 180 / pi )
-  report 0.501 + 0.5 * sin ( 2.5 * (ticks - 54))
+  report 0.51 + 0.5 * sin ( 2.5 * (ticks - 54))
 end
 
 ;;;;;;;;;;;;;;;;;helper functions;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -396,6 +440,45 @@ to time-update
 
   set week-day (cur-day mod 7)
 
+end
+
+to-report density-average
+  report count people with [active? = true]  / count vertices
+end
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;; PLOTS ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+to draw-plots
+  if ticks mod 288 = 0 [
+    clear-all-plots
+    ;no-display
+  ]
+  if graphics-view [
+    ;; Crimes per hour graphics
+    set-current-plot "Crimes per hour"
+    create-temporary-plot-pen "report_crimes"
+    set-plot-pen-mode 1
+    foreach (range 0 24)[
+      x -> plotxy x item x report-crimes-per-hour
+    ]
+
+    ;; Environmental variables
+    set-current-plot "Environmental Variables"
+    create-temporary-plot-pen "Luminosity"
+    set-plot-pen-color 15
+    plot luminosity
+
+    create-temporary-plot-pen "Attractiveness"
+    set-plot-pen-color 105
+    plot mean [attractiveness] of patches with [corner? = true]
+
+    set-current-plot "Density"
+    create-temporary-plot-pen "Density"
+    set-plot-pen-color 105
+    plot density-average
+  ]
 end
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -519,8 +602,8 @@ GRAPHICS-WINDOW
 180
 -115
 115
-0
-0
+1
+1
 1
 ticks
 30.0
@@ -561,31 +644,29 @@ SLIDER
 num-people
 num-people
 50
-5000
-5000.0
+15000
+10000.0
 50
 1
 NIL
 HORIZONTAL
 
 PLOT
-1059
-10
-1331
-217
-People statuses
+811
+356
+1329
+476
+Density
 Time
-#-people
+Variable
 0.0
 10.0
 0.0
-10.0
+1.0
 true
 true
 "" ""
 PENS
-"standby" 1.0 0 -2674135 true "" "plot count people with [hidden? = true ]"
-"active" 1.0 0 -14070903 true "" "plot count people with [hidden? = false]"
 
 MONITOR
 589
@@ -663,7 +744,7 @@ num-offenders
 num-offenders
 0
 100
-1.0
+20.0
 1
 1
 NIL
@@ -689,7 +770,7 @@ crime-hist-sf
 crime-hist-sf
 0
 1
-0.7
+0.0
 0.1
 1
 NIL
@@ -704,22 +785,11 @@ attractiveness-sf
 attractiveness-sf
 0
 1
-0.7
+0.0
 0.1
 1
 NIL
 HORIZONTAL
-
-MONITOR
-384
-11
-497
-56
-Average Density
-count people with [active? = true]/ #-vertices
-2
-1
-11
 
 SLIDER
 7
@@ -730,7 +800,7 @@ victim-history-sf
 victim-history-sf
 0
 1
-0.7
+0.0
 0.1
 1
 NIL
@@ -762,7 +832,6 @@ false
 false
 "" ""
 PENS
-"default" 1.0 1 -16777216 true "" "foreach (range 0 24)[ x ->\n   plotxy x item x report-crimes-per-hour\n]"
 
 MONITOR
 211
@@ -780,7 +849,7 @@ PLOT
 223
 1329
 348
-Awareness (people) vs Attractiveness (places)
+Environmental Variables
 time
 Variables
 0.0
@@ -791,21 +860,17 @@ true
 true
 "" ""
 PENS
-"Time Effect" 1.0 0 -13345367 true "" "plot mean [time-effect] of vertices"
-"Density" 1.0 0 -955883 true "" "plot mean [density] of vertices"
-"Crime Hist" 1.0 0 -14439633 true "" "plot mean [crime-hist-vertex] of vertices"
-"Attractiveness" 1.0 0 -16777216 true "" "plot mean [attractiveness] of vertices"
 
 SLIDER
 7
 376
 182
 409
-awareness-balance
-awareness-balance
+awareness-sf
+awareness-sf
 0
 1
-0.05
+0.5
 0.05
 1
 NIL
@@ -820,51 +885,92 @@ crime-hist-balance
 crime-hist-balance
 0
 1
-0.05
+0.0
 0.05
 1
 NIL
 HORIZONTAL
 
+SLIDER
+339
+425
+511
+458
+motivation-sf
+motivation-sf
+0
+0.1
+0.01
+0.0001
+1
+NIL
+HORIZONTAL
+
+MONITOR
+624
+569
+843
+614
+NIL
+count people with [active? = true]
+17
+1
+11
+
+MONITOR
+283
+532
+603
+577
+NIL
+count people with [active? = true] / count vertices
+17
+1
+11
+
+SLIDER
+35
+474
+216
+507
+motivation-threshold
+motivation-threshold
+0
+1
+0.9
+0.1
+1
+NIL
+HORIZONTAL
+
+SWITCH
+597
+441
+741
+474
+graphics-view
+graphics-view
+0
+1
+-1000
+
 PLOT
-812
-358
-1327
-478
+1098
+84
+1298
+234
 plot 1
 NIL
 NIL
 0.0
 10.0
 0.0
-1.0
+0.5
 true
 false
 "" ""
 PENS
-"default" 1.0 0 -16777216 true "" "plot people-on-the-streets"
-
-MONITOR
-423
-426
-577
-471
-NIL
-people-on-the-streets
-17
-1
-11
-
-MONITOR
-589
-428
-808
-473
-NIL
-count people with [active? = true]
-17
-1
-11
+"default" 1.0 0 -16777216 true "" "plot alogistic luminosity"
 
 @#$#@#$#@
 ## WHAT IS IT?
@@ -1212,6 +1318,65 @@ NetLogo 6.0.2
 @#$#@#$#@
 @#$#@#$#@
 @#$#@#$#@
+<experiments>
+  <experiment name="experiment" repetitions="1" runMetricsEveryStep="true">
+    <setup>setup</setup>
+    <go>go</go>
+    <timeLimit steps="4320"/>
+    <metric>(list (report-crimes-per-hour) (total-crimes))</metric>
+    <steppedValueSet variable="awareness-sf" first="0.5" step="0.1" last="1"/>
+    <steppedValueSet variable="motivation-sf" first="0.01" step="0.01" last="0.05"/>
+    <steppedValueSet variable="motivation-threshold" first="0.1" step="0.1" last="0.9"/>
+    <enumeratedValueSet variable="crime-hist-balance">
+      <value value="0"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="num-offenders">
+      <value value="20"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="victim-history-sf">
+      <value value="0"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="attractiveness-sf">
+      <value value="0"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="num-people">
+      <value value="10000"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="experiment_1_year" repetitions="1" runMetricsEveryStep="true">
+    <setup>setup</setup>
+    <go>go</go>
+    <exitCondition>cur-day = 366</exitCondition>
+    <metric>(list (report-crimes-per-hour) (total-crimes))</metric>
+    <enumeratedValueSet variable="awareness-sf">
+      <value value="0.1"/>
+      <value value="0.5"/>
+      <value value="1"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="motivation-sf">
+      <value value="0.01"/>
+      <value value="0.05"/>
+      <value value="0.1"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="motivation-threshold">
+      <value value="0.1"/>
+      <value value="0.5"/>
+      <value value="0.9"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="num-offenders">
+      <value value="20"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="attractiveness-sf">
+      <value value="0"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="num-people">
+      <value value="10000"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="graphics-view">
+      <value value="false"/>
+    </enumeratedValueSet>
+  </experiment>
+</experiments>
 @#$#@#$#@
 @#$#@#$#@
 default
