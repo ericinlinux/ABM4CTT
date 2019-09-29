@@ -45,7 +45,6 @@ people-own [
   destination       ;; next vertex to go
   mynode            ;; current node
   active?           ;; after node reaches destination, it stays there for a while
-  ;time-standby      ;; time the agent will stay in the destination before moving again
   home-vertex       ;; home vertex
   ;; OFFENDERS VARIABLES
   offender?         ;; if the node is an offender
@@ -80,7 +79,6 @@ patches-own [
 to setup
   ca
   setup-map
-  ; setup graph
   setup-vertices
   setup-globals
   setup-citizens
@@ -91,23 +89,13 @@ end
 
 ;; GLOBALS
 to setup-globals
-  ;; set min-ticks-wait 1   ;; every tick is 10 minutes
-  ;; set max-ticks-wait 24  ;; 4 hours max
-  ;; set popular-times [ 10 2 1 1 1 2 10 15 20 40 80 100 100 80 70 60 70 80 100 80 50 40 30 20 ]
-  ;; set offenders-popular-times [ 90 90 80 70 40 20 10 5 5 10 20 30 30 30 30 50 50 50 60 60 70 70 70 80 ]
 
   set cur-day 0          ;; starts on day 0
   set cur-hour 0
   set cur-min 0
-  set crime-rates-per-hour [13 13 19 19 9 9 2 2 1 1 3 3 5 5 4 4 4 4 9 9 25 25 19 19]
   set report-crimes-per-hour [0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 ]
 
   set #-vertices count vertices
-  set num-people 10000
-  set num-offenders 20
-  set motivation-sf 0.01
-  set awareness-sf 0.5
-  ;set victim-history 0.1
 end
 
 ;; MAP READING
@@ -229,13 +217,12 @@ end
 ;; -------------------------------
 
 to go
+  time-update
   random-walk
   update-attractiveness
   update-citizens
   commit-crime
-  if cur-day = 366 [
-    stop
-  ]
+
   draw-plots
 
 end
@@ -255,14 +242,6 @@ to update-attractiveness
     ;; the higher the crime history, the better to the offender
     set crime-hist-vertex crime-hist-vertex * crime-hist-sf
 
-    ;; the time of the day effect is based on the data provided by the police
-    ;set time-effect (item cur-hour crime-rates-per-hour) / 113 ;; the vector crime-rates-per-hour presents a sum of 113 robberies
-    ;set time-effect time-crime-effect cur-hour
-
-
-    ;let update-factor crime-hist-balance * crime-hist-vertex + ( (1 - crime-hist-balance) * ( density + time-effect)  / 2   )
-    ;set attractiveness attractiveness + attractiveness-sf * ( update-factor - attractiveness )
-    ;set attractiveness time-effect * density
     ;; for the offender -> the higher the better
     set attractiveness (1 - luminosity ) * density
 
@@ -275,15 +254,14 @@ end
 to-report luminosity
   ;; half light at 6am and 6pm. Pick sun at 12pm, and darkness at 12am.
   ;; report 0.5 + 0.5 * sin ( pi * (x - 36 ) / 72 )
-  report 0.5 + 0.5 * sin ( 2.5 * (ticks - 36) )
+  ifelse cur-hour > 18 or cur-hour < 7 [
+    report 0.4
+  ][ report 0.9]
+  ;; report 0.5 + 0.5 * sin ( 2.5 * (ticks - 36) )
 end
 
 
-to-report alogistic [ x ]
-  let omega 5
-  let tau 20
-  report ((1 / (1 + e ^ (- omega * (x - tau) ) ) ) - (1 / (1 + e ^ (tau * omega)))) * (1 + e ^ (- omega * tau) )
-end
+
 
 ;; SINOIDAL MODEL FOR THE EFFECT OF THE TIME
 to-report time-crime-effect [ t ]
@@ -298,15 +276,15 @@ end
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 to update-citizens
   ask people [
-    ifelse robbed? [
-      set victim-history 1
-      set robbed? false
-      set color blue
-    ][ set victim-history victim-history * victim-history-sf ]
+    ;    ifelse robbed? [
+    ;      set victim-history 1
+    ;      set robbed? false
+    ;      set color blue
+    ;    ][ set victim-history victim-history * victim-history-sf ]
 
     ;; awareness-balance gives different weights for victim-history and attractiveness of the place
     ;set awareness (awareness-balance * victim-history + (1 - awareness-balance) * (1 - [ attractiveness ] of mynode) )
-    set awareness awareness + awareness-sf * ( attractiveness - awareness)
+    set awareness awareness + awareness-sf * ( attractiveness - awareness )
   ]
 
 end
@@ -322,13 +300,13 @@ to commit-crime
         set victim min-one-of people-here with [active? = true and offender? != true] [awareness]
         if victim != nobody [
           let rfloat random-float 1
-          if rfloat < ((1 - [awareness] of victim) * motivation ) [
+          if rfloat < (((1 - [awareness] of victim) + motivation ) / 2 ) [
             set crimes-committed crimes-committed + 1
             set total-crimes total-crimes + 1
             set crimes-in-vertex crimes-in-vertex + 1
             set crime-hist-vertex 1
             set report-crimes-per-hour replace-item cur-hour report-crimes-per-hour ((item cur-hour report-crimes-per-hour ) + 1)
-            ask victim [ set robbed? true ]
+            ; ask victim [ set robbed? true ]
 
             ;type "hour: " type cur-hour type victim type " with awareness " type [awareness] of victim type " was robbed by " type self type " with a motivation of " type motivation type "\n"
             ;type rfloat type "\t" type ((1 - [awareness] of victim) * motivation ) type "\n"
@@ -341,7 +319,7 @@ to commit-crime
     ]
     ;; motivation adjustment every day
     ;if cur-hour = 0 [
-    set motivation motivation + 0.005 * (random-float motivation-sf)
+    set motivation motivation + 0.05 * (random-float motivation-sf)
     if motivation > 1 [ set motivation 1 ]
     ;]
 
@@ -354,7 +332,6 @@ end
 ;;; WALKING ALGORITHM
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 to random-walk
-  time-update
 
   ask people [
     ; if it is full hour, change the standby nodes
@@ -369,7 +346,7 @@ to random-walk
         set hidden? false
       ]
     ][
-      ifelse random-float 1 < prob-standby [
+      ifelse random-float 1 > robbers-on-the-streets [
         set active? false
         set hidden? true
       ][
@@ -393,6 +370,10 @@ to-report people-on-the-streets
   ;; report 0.5 + 0.5 * sin ( pi * (t - 54) / 72)
   ;; in degrees ( radians * 180 / pi )
   report 0.51 + 0.5 * sin ( 2.5 * (ticks - 54))
+end
+
+to-report robbers-on-the-streets
+  report 0.5 - 0.5 * sin (2.5 * (ticks - 24 ))
 end
 
 ;;;;;;;;;;;;;;;;;helper functions;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -580,6 +561,12 @@ end
 ;  ]
 ;
 ;end
+
+to-report alogistic [ x ]
+  let omega 5
+  let tau 20
+  report ((1 / (1 + e ^ (- omega * (x - tau) ) ) ) - (1 / (1 + e ^ (tau * omega)))) * (1 + e ^ (- omega * tau) )
+end
 @#$#@#$#@
 GRAPHICS-WINDOW
 214
@@ -744,7 +731,7 @@ num-offenders
 num-offenders
 0
 100
-20.0
+10.0
 1
 1
 NIL
@@ -870,7 +857,7 @@ awareness-sf
 awareness-sf
 0
 1
-0.5
+0.8
 0.05
 1
 NIL
@@ -950,27 +937,9 @@ SWITCH
 474
 graphics-view
 graphics-view
-0
+1
 1
 -1000
-
-PLOT
-1098
-84
-1298
-234
-plot 1
-NIL
-NIL
-0.0
-10.0
-0.0
-0.5
-true
-false
-"" ""
-PENS
-"default" 1.0 0 -16777216 true "" "plot alogistic luminosity"
 
 @#$#@#$#@
 ## WHAT IS IT?
@@ -1319,17 +1288,14 @@ NetLogo 6.0.2
 @#$#@#$#@
 @#$#@#$#@
 <experiments>
-  <experiment name="experiment" repetitions="1" runMetricsEveryStep="true">
+  <experiment name="phase_01" repetitions="1" runMetricsEveryStep="true">
     <setup>setup</setup>
     <go>go</go>
-    <timeLimit steps="4320"/>
+    <exitCondition>cur-day = 50</exitCondition>
     <metric>(list (report-crimes-per-hour) (total-crimes))</metric>
     <steppedValueSet variable="awareness-sf" first="0.5" step="0.1" last="1"/>
     <steppedValueSet variable="motivation-sf" first="0.01" step="0.01" last="0.05"/>
     <steppedValueSet variable="motivation-threshold" first="0.1" step="0.1" last="0.9"/>
-    <enumeratedValueSet variable="crime-hist-balance">
-      <value value="0"/>
-    </enumeratedValueSet>
     <enumeratedValueSet variable="num-offenders">
       <value value="20"/>
     </enumeratedValueSet>
@@ -1342,32 +1308,74 @@ NetLogo 6.0.2
     <enumeratedValueSet variable="num-people">
       <value value="10000"/>
     </enumeratedValueSet>
+    <enumeratedValueSet variable="graphics-view">
+      <value value="false"/>
+    </enumeratedValueSet>
   </experiment>
-  <experiment name="experiment_1_year" repetitions="1" runMetricsEveryStep="true">
+  <experiment name="phase_02" repetitions="50" runMetricsEveryStep="true">
     <setup>setup</setup>
     <go>go</go>
-    <exitCondition>cur-day = 366</exitCondition>
+    <exitCondition>cur-day = 50</exitCondition>
     <metric>(list (report-crimes-per-hour) (total-crimes))</metric>
     <enumeratedValueSet variable="awareness-sf">
-      <value value="0.1"/>
-      <value value="0.5"/>
-      <value value="1"/>
+      <value value="0.8"/>
     </enumeratedValueSet>
     <enumeratedValueSet variable="motivation-sf">
-      <value value="0.01"/>
-      <value value="0.05"/>
-      <value value="0.1"/>
+      <value value="0.04"/>
     </enumeratedValueSet>
     <enumeratedValueSet variable="motivation-threshold">
-      <value value="0.1"/>
-      <value value="0.5"/>
       <value value="0.9"/>
     </enumeratedValueSet>
     <enumeratedValueSet variable="num-offenders">
       <value value="20"/>
     </enumeratedValueSet>
-    <enumeratedValueSet variable="attractiveness-sf">
-      <value value="0"/>
+    <enumeratedValueSet variable="num-people">
+      <value value="10000"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="graphics-view">
+      <value value="false"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="phase_03" repetitions="10" runMetricsEveryStep="true">
+    <setup>setup</setup>
+    <go>go</go>
+    <exitCondition>cur-day = 366</exitCondition>
+    <metric>(list (report-crimes-per-hour) (total-crimes))</metric>
+    <enumeratedValueSet variable="awareness-sf">
+      <value value="0.8"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="motivation-sf">
+      <value value="0.04"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="motivation-threshold">
+      <value value="0.9"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="num-offenders">
+      <value value="20"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="num-people">
+      <value value="10000"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="graphics-view">
+      <value value="false"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="phase_04a" repetitions="10" runMetricsEveryStep="true">
+    <setup>setup</setup>
+    <go>go</go>
+    <exitCondition>cur-day = 366</exitCondition>
+    <metric>(list (report-crimes-per-hour) (total-crimes))</metric>
+    <enumeratedValueSet variable="awareness-sf">
+      <value value="0.8"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="motivation-sf">
+      <value value="0.01"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="motivation-threshold">
+      <value value="0.9"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="num-offenders">
+      <value value="10"/>
     </enumeratedValueSet>
     <enumeratedValueSet variable="num-people">
       <value value="10000"/>
