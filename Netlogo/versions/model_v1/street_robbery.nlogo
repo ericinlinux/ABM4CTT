@@ -243,19 +243,20 @@ to update-attractiveness
     set crime-hist-vertex crime-hist-vertex * crime-hist-sf
 
     ;; for the offender -> the higher the better
-    set attractiveness (1 - luminosity ) * density
+    set attractiveness (1 - lighting ) * density
 
   ]
 
 end
 
 
-;; LUMINOSITY IN THE CITY ACCORDING TO THE TIME OF THE DAY (in ticks)
-to-report luminosity
+;; LIGHTING IN THE CITY ACCORDING TO THE TIME OF THE DAY (in ticks)
+to-report lighting
   ;; half light at 6am and 6pm. Pick sun at 12pm, and darkness at 12am.
   ;; report 0.5 + 0.5 * sin ( pi * (x - 36 ) / 72 )
   ifelse cur-hour > 18 or cur-hour < 7 [
-    report 0.4
+    ; 0.4 before
+    report 0.3
   ][ report 0.9]
   ;; report 0.5 + 0.5 * sin ( 2.5 * (ticks - 36) )
 end
@@ -373,7 +374,8 @@ to-report people-on-the-streets
 end
 
 to-report robbers-on-the-streets
-  report 0.5 - 0.5 * sin (2.5 * (ticks - 24 ))
+  ;report 0.5 - 0.5 * sin (2.5 * (ticks - 24 ))
+  report 0.5 - 0.5 * sin (2.5 * (ticks - 12 ))
 end
 
 ;;;;;;;;;;;;;;;;;helper functions;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -447,9 +449,9 @@ to draw-plots
 
     ;; Environmental variables
     set-current-plot "Environmental Variables"
-    create-temporary-plot-pen "Luminosity"
+    create-temporary-plot-pen "Lighting"
     set-plot-pen-color 15
-    plot luminosity
+    plot lighting
 
     create-temporary-plot-pen "Attractiveness"
     set-plot-pen-color 105
@@ -731,7 +733,7 @@ num-offenders
 num-offenders
 0
 100
-10.0
+20.0
 1
 1
 NIL
@@ -857,7 +859,7 @@ awareness-sf
 awareness-sf
 0
 1
-0.8
+1.0
 0.05
 1
 NIL
@@ -887,7 +889,7 @@ motivation-sf
 motivation-sf
 0
 0.1
-0.01
+0.05
 0.0001
 1
 NIL
@@ -900,17 +902,6 @@ MONITOR
 614
 NIL
 count people with [active? = true]
-17
-1
-11
-
-MONITOR
-283
-532
-603
-577
-NIL
-count people with [active? = true] / count vertices
 17
 1
 11
@@ -1288,7 +1279,7 @@ NetLogo 6.0.2
 @#$#@#$#@
 @#$#@#$#@
 <experiments>
-  <experiment name="phase_01" repetitions="1" runMetricsEveryStep="true">
+  <experiment name="phase_01" repetitions="10" runMetricsEveryStep="false">
     <setup>setup</setup>
     <go>go</go>
     <exitCondition>cur-day = 50</exitCondition>
@@ -1297,6 +1288,8 @@ NetLogo 6.0.2
     <steppedValueSet variable="motivation-sf" first="0.01" step="0.01" last="0.05"/>
     <steppedValueSet variable="motivation-threshold" first="0.1" step="0.1" last="0.9"/>
     <enumeratedValueSet variable="num-offenders">
+      <value value="5"/>
+      <value value="10"/>
       <value value="20"/>
     </enumeratedValueSet>
     <enumeratedValueSet variable="victim-history-sf">
@@ -1360,7 +1353,31 @@ NetLogo 6.0.2
       <value value="false"/>
     </enumeratedValueSet>
   </experiment>
-  <experiment name="phase_04a" repetitions="10" runMetricsEveryStep="true">
+  <experiment name="phase_04a" repetitions="100" runMetricsEveryStep="false">
+    <setup>setup</setup>
+    <go>go</go>
+    <exitCondition>cur-day = 366</exitCondition>
+    <metric>(list (report-crimes-per-hour) (total-crimes))</metric>
+    <enumeratedValueSet variable="awareness-sf">
+      <value value="0.8"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="motivation-sf">
+      <value value="0.01"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="motivation-threshold">
+      <value value="0.9"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="num-offenders">
+      <value value="10"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="num-people">
+      <value value="10000"/>
+    </enumeratedValueSet>
+    <enumeratedValueSet variable="graphics-view">
+      <value value="false"/>
+    </enumeratedValueSet>
+  </experiment>
+  <experiment name="phase_04b" repetitions="10" runMetricsEveryStep="false">
     <setup>setup</setup>
     <go>go</go>
     <exitCondition>cur-day = 366</exitCondition>
